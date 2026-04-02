@@ -75,13 +75,17 @@ func (p *SecretsManagerProvider) fetchSecretManagerValue(
 	curMap map[string]*v1alpha1.ObjectVersion,
 ) (value []*SecretValue, err error) {
 
+	var lastJsonError error
 	for _, client := range p.clients {
 		secretVal, err := p.fetchSecretManagerValueWithClient(ctx, client, descriptor, curMap)
 
 		//check if fatal(4XX status error) exist to error out the mount
-		if utils.IsFatalError(err) {
+		if utils.IsFatalError(err) || isJsonFatalError(err) {
 			return nil, err
 		} else if err != nil {
+			if isJsonError(err) {
+				lastJsonError = err
+			}
 			klog.Warning(err)
 		}
 
@@ -90,6 +94,9 @@ func (p *SecretsManagerProvider) fetchSecretManagerValue(
 		}
 	}
 	if len(value) == 0 {
+		if lastJsonError != nil {
+			return nil, lastJsonError
+		}
 		return nil, fmt.Errorf("Failed to fetch secret from all regions. Verify secret exists and required permissions are granted for: %s", descriptor.ObjectName)
 	}
 

@@ -395,27 +395,40 @@ func (s *CSIDriverProviderServer) writeFile(secret *provider.SecretValue, mode o
 	if err != nil {
 		return nil, err
 	}
-	defer os.Remove(tmpFile.Name()) // Cleanup on fail
-	defer tmpFile.Close()           // Don't leak file descriptors
+	tmpPath := tmpFile.Name()
 
 	err = tmpFile.Chmod(mode) // Set correct permissions
 	if err != nil {
+		tmpFile.Close()
+		os.Remove(tmpPath)
 		return nil, err
 	}
 
 	_, err = tmpFile.Write(secret.Value) // Write the secret
 	if err != nil {
+		tmpFile.Close()
+		os.Remove(tmpPath)
 		return nil, err
 	}
 
 	err = tmpFile.Sync() // Make sure to flush to disk
 	if err != nil {
+		tmpFile.Close()
+		os.Remove(tmpPath)
+		return nil, err
+	}
+
+	// Close before rename so Windows allows replacing the destination (open handles block rename).
+	err = tmpFile.Close()
+	if err != nil {
+		os.Remove(tmpPath)
 		return nil, err
 	}
 
 	// Swap out the old secret for the new
-	err = os.Rename(tmpFile.Name(), secret.Descriptor.GetMountPath())
+	err = os.Rename(tmpPath, secret.Descriptor.GetMountPath())
 	if err != nil {
+		os.Remove(tmpPath)
 		return nil, err
 	}
 

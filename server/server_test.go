@@ -1316,6 +1316,42 @@ var mountTestsForMultiRegion []testCase = []testCase{
 		expSecrets: map[string]string{},
 		perms:      "420",
 	},
+	{ // Invalid JMESPath syntax: fail immediately; do not use failover region.
+		testName:   "Multi Region JMESPath Invalid Syntax Fail Fast",
+		attributes: stdAttributesWithBackupRegion,
+		mountObjs: []map[string]interface{}{
+			{"objectName": "TestSecretJMESInvalid", "objectType": "secretsmanager", "jmesPath": []map[string]string{{"path": ".badpath", "objectAlias": "badalias"}}},
+		},
+		gsvRsp: []*secretsmanager.GetSecretValueOutput{
+			{SecretString: aws.String(`{"a":"b"}`), VersionId: aws.String("1")},
+		},
+		descRsp: []*secretsmanager.DescribeSecretOutput{},
+		brGsvRsp: []*secretsmanager.GetSecretValueOutput{
+			{SecretString: aws.String(`{"a":"b","c":"d"}`), VersionId: aws.String("2")},
+		},
+		brDescRsp:  []*secretsmanager.DescribeSecretOutput{},
+		expErr:     `Invalid JMES Path: \.badpath\.`,
+		expSecrets: map[string]string{},
+		perms:      "420",
+	},
+	{ // JMESPath valid but no match in all regions: surface specific error, not generic fetch error.
+		testName:   "Multi Region JMESPath No Match All Regions",
+		attributes: stdAttributesWithBackupRegion,
+		mountObjs: []map[string]interface{}{
+			{"objectName": "TestSecretJMESNoMatch", "objectType": "secretsmanager", "jmesPath": []map[string]string{{"path": "missingKey", "objectAlias": "alias1"}}},
+		},
+		gsvRsp: []*secretsmanager.GetSecretValueOutput{
+			{SecretString: aws.String(`{"hello":"world"}`), VersionId: aws.String("1")},
+		},
+		descRsp: []*secretsmanager.DescribeSecretOutput{},
+		brGsvRsp: []*secretsmanager.GetSecretValueOutput{
+			{SecretString: aws.String(`{"hello":"world"}`), VersionId: aws.String("2")},
+		},
+		brDescRsp:  []*secretsmanager.DescribeSecretOutput{},
+		expErr:     "does not point to a valid object",
+		expSecrets: map[string]string{},
+		perms:      "420",
+	},
 	{ // Verify failure when API call (GetParameters) fails for all the regions
 		testName:   "Multi Region Parameter Store Api Fail",
 		attributes: stdAttributesWithBackupRegion,
@@ -2191,6 +2227,27 @@ var noWriteMountTests []testCase = []testCase{
 		expSecrets: map[string]string{
 			"mypath/TestSecret1": "secret1",
 			"mypath/TestParm1":   "parm1",
+		},
+		perms: "420",
+	},
+	{ // JMESPath no match in primary, success in failover (driver returns files; avoids Windows file-perm quirks in validateMounts).
+		testName:   "Multi Region JMESPath No Match Then Failover Success NoWrite",
+		attributes: stdAttributesWithBackupRegion,
+		mountObjs: []map[string]interface{}{
+			{"objectName": "TestSecretJMESFailover", "objectType": "secretsmanager", "jmesPath": []map[string]string{{"path": "want", "objectAlias": "wantVal"}}},
+		},
+		gsvRsp: []*secretsmanager.GetSecretValueOutput{
+			{SecretString: aws.String(`{"only":"here"}`), VersionId: aws.String("1")},
+		},
+		descRsp: []*secretsmanager.DescribeSecretOutput{},
+		brGsvRsp: []*secretsmanager.GetSecretValueOutput{
+			{SecretString: aws.String(`{"want":"found"}`), VersionId: aws.String("2")},
+		},
+		brDescRsp: []*secretsmanager.DescribeSecretOutput{},
+		expErr:    "",
+		expSecrets: map[string]string{
+			"TestSecretJMESFailover": `{"want":"found"}`,
+			"wantVal":                "found",
 		},
 		perms: "420",
 	},
